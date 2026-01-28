@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ChatApp</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        :root {
+            --glass: rgba(255, 255, 255, 0.06);
+            --glass-strong: rgba(20, 20, 40, 0.6);
+            --border: rgba(255, 255, 255, 0.15);
+            --accent: #00d2ff;
+            --accent-grad: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+            --text: #ffffff;
+            --text-muted: rgba(255, 255, 255, 0.7);
+            --danger: #ff4757;
+            --online: #00ff88;
+        }
+
+        * { box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
+            background-size: 400%;
+            animation: glowing 20s linear infinite;
+            color: var(--text); 
+            height: 100vh; 
+            overflow: hidden; 
+        }
+        
+        @keyframes glowing {
+            0% { background-position: 0 0; }
+            50% { background-position: 100% 0; }
+            100% { background-position: 0 0; }
+        }
+
+        #bg-overlay {
+            position: fixed; inset: 0; background: rgba(5, 5, 16, 0.85); z-index: -1;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+
+        .screen { 
+            position: fixed; inset: 0; display: none; flex-direction: column; z-index: 100; 
+            background: transparent;
+        }
+        .active { display: flex !important; }
+
+        #auth-screen { z-index: 2000; }
+        .auth-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid var(--border);
+            padding: 40px; 
+            border-radius: 30px; 
+            width: 90%; 
+            max-width: 380px; 
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+        .auth-card input, .modal-input {
+            background: rgba(0,0,0,0.3) !important;
+            border: 1px solid var(--border) !important;
+            transition: 0.3s;
+            color: white;
+            padding: 14px;
+            border-radius: 12px;
+            width: 100%;
+            outline: none;
+        }
+        .auth-card input:focus, .modal-input:focus {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.2);
+        }
+
+        .header { 
+            height: 70px; 
+            background: var(--glass-strong);
+            backdrop-filter: blur(20px);
+            display: flex; align-items: center; padding: 0 20px; 
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+
+        .search-container { padding: 15px 20px; }
+        .search-box { 
+            background: var(--glass); border-radius: 20px; display: flex; align-items: center; 
+            padding: 8px 15px; border: 1px solid var(--border); transition: 0.3s;
+        }
+        #search-input { background: none; border: none; color: white; padding: 5px 10px; width: 100%; outline: none; font-size: 15px; }
+
+        .avatar-wrapper { position: relative; width: 45px; height: 45px; margin-right: 15px; flex-shrink: 0; }
+        .avatar { 
+            width: 100%; height: 100%; border-radius: 50%; object-fit: cover; 
+            background: rgba(255,255,255,0.1); cursor: pointer; border: 2px solid rgba(255,255,255,0.15);
+        }
+        .status-dot { 
+            position: absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; 
+            border-radius: 50%; background: var(--online); box-shadow: 0 0 8px var(--online); border: 2px solid #000; 
+        }
+        
+        #chat-list { flex: 1; overflow-y: auto; padding: 10px 15px; display: flex; flex-direction: column; gap: 8px; }
+        .user-item { 
+            display: flex; align-items: center; padding: 12px 15px; border-radius: 20px; 
+            cursor: pointer; transition: 0.3s; border: 1px solid transparent;
+        }
+        .user-item:hover { background: var(--glass); }
+        .user-item:active { transform: scale(0.98); }
+        
+        .is-pinned { 
+            background: linear-gradient(90deg, rgba(0, 210, 255, 0.1), rgba(255,255,255,0.02)) !important;
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            order: -1;
+        }
+        .pin-icon { display: none; margin-left: auto; color: var(--accent); font-size: 14px; }
+        .is-pinned .pin-icon { display: block; }
+
+        #chat-view { 
+            position: fixed; inset: 0; background: transparent; z-index: 500; 
+            display: none; flex-direction: column; backdrop-filter: blur(40px);
+            transform: translateX(100%); transition: 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        #chat-view.active { display: flex; transform: translateX(0); }
+
+        #msg-container { 
+            flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; 
+        }
+
+        .msg { 
+            padding: 12px 18px; border-radius: 22px; max-width: 75%; font-size: 15px; position: relative; 
+            animation: msgPop 0.3s ease-out forwards; line-height: 1.5;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); backdrop-filter: blur(10px);
+        }
+        @keyframes msgPop { from { opacity: 0; transform: translateY(15px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .sent { 
+            align-self: flex-end; background: var(--accent-grad); color: #000; font-weight: 500; border-bottom-right-radius: 4px; 
+        }
+        .received { 
+            align-self: flex-start; background: rgba(255,255,255,0.08); border: 1px solid var(--border); border-bottom-left-radius: 4px; 
+        }
+        .react-badge { 
+            position: absolute; bottom: -10px; right: 0; font-size: 14px; 
+            background: #2a2a35; padding: 2px 6px; border-radius: 10px; border: 1px solid var(--border);
+        }
+
+        .input-area { 
+            padding: 15px 20px 30px; background: var(--glass-strong); backdrop-filter: blur(20px); border-top: 1px solid var(--border); 
+        }
+        .input-row { 
+            display: flex; align-items: center; gap: 12px; background: rgba(0,0,0,0.3); 
+            border: 1px solid var(--border); padding: 5px 20px; border-radius: 30px; 
+        }
+        #m-input { background: none; border: none; padding: 12px 0; width: 100%; color: white; outline: none; font-size: 15px; }
+
+        .floating-menu { 
+            position: fixed; background: rgba(20, 20, 30, 0.95); backdrop-filter: blur(20px);
+            border: 1px solid var(--border); border-radius: 18px; display: none; flex-direction: column; 
+            z-index: 9000; min-width: 180px; box-shadow: 0 15px 40px rgba(0,0,0,0.6); padding: 6px;
+            animation: menuFade 0.2s ease;
+        }
+        @keyframes menuFade { from { opacity:0; transform: scale(0.9); } to { opacity:1; transform: scale(1); } }
+        .floating-menu button { 
+            background: transparent; border: none; color: white; padding: 12px 15px; 
+            text-align: left; cursor: pointer; display: flex; align-items: center; gap: 12px; 
+            border-radius: 12px; transition: 0.2s; font-size: 14px; width: 100%;
+        }
+        .floating-menu button:hover { background: rgba(255,255,255,0.05); }
+
+        #custom-modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px);
+            z-index: 9999; display: none; align-items: center; justify-content: center;
+        }
+        .modal-box {
+            background: rgba(30, 30, 45, 0.8); border: 1px solid var(--border);
+            padding: 25px; border-radius: 25px; width: 85%; max-width: 320px; text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+            transform: scale(0.9); opacity: 0; transition: 0.3s;
+        }
+        #custom-modal.active { display: flex; }
+        #custom-modal.active .modal-box { transform: scale(1); opacity: 1; }
+        
+        .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+        .modal-btn { flex: 1; padding: 12px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; }
+        .btn-cancel { background: rgba(255,255,255,0.1); color: white; }
+        .btn-confirm { background: var(--accent-grad); color: black; }
+
+    </style>
+</head>
+<body>
+
+<div id="bg-overlay"></div>
+
+<div id="custom-modal">
+    <div class="modal-box">
+        <h3 id="modal-title" style="margin-bottom: 15px;">Edit</h3>
+        <input type="text" id="modal-input" class="modal-input" placeholder="...">
+        <div class="modal-btns">
+            <button class="modal-btn btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="modal-btn btn-confirm" onclick="confirmModal()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="auth-screen" class="screen active">
+    <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+        <div class="auth-card">
+            <h2 style="font-weight:800; letter-spacing:-1px; margin-bottom:5px; background: var(--accent-grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ChatApp</h2>
+            <p style="color:var(--text-muted); margin-bottom:25px; font-size:14px;">A simple app to chat with friends , Free & secure.</p>
+            <input type="email" id="auth-email" placeholder="Email" style="margin:10px 0;">
+            <input type="password" id="auth-pass" placeholder="Password" style="margin-bottom:25px;">
+            <button onclick="handleAuth()" style="width:100%; padding:16px; background:var(--accent-grad); color:black; border:none; border-radius:16px; font-weight:800; cursor:pointer; font-size:15px; box-shadow: 0 5px 20px rgba(0, 210, 255, 0.3);">Login</button>
+        </div>
+    </div>
+</div>
+
+<div id="app-screen" class="screen">
+    <div class="header">
+        <div class="avatar-wrapper"><img id="my-avatar" class="avatar" onclick="showProfileMenu(event)"></div>
+        <div style="line-height: 1.3;">
+            <b id="my-username" style="font-size:16px;">...</b>
+            <p id="my-bio-display" style="font-size:12px; color:var(--text-muted)"></p>
+        </div>
+    </div>
+    <div class="search-container">
+        <div class="search-box">
+            <i class="ph ph-magnifying-glass" style="color:var(--text-muted)"></i>
+            <input type="text" id="search-input" placeholder="Search friends..." oninput="renderUsers()">
+        </div>
+    </div>
+    <div id="chat-list"></div>
+</div>
+
+<div id="chat-view">
+    <div class="header">
+        <button onclick="closeChat()" style="background:none; border:none; color:white; padding:10px; cursor:pointer; margin-right:5px;"><i class="ph ph-caret-left" style="font-size:24px;"></i></button>
+        <div class="avatar-wrapper" style="width:40px; height:40px; margin-right:12px;"><img id="chat-avatar" class="avatar"></div>
+        <div style="flex:1">
+            <b id="chat-name" style="font-size:16px;">Chat</b>
+            <p id="typing-status" style="font-size:11px; color:var(--accent); font-weight:bold; display:none;">typing...</p>
+        </div>
+    </div>
+    <div id="msg-container"></div>
+    <div id="reply-preview" style="display:none; padding:12px 20px; background:rgba(0, 210, 255, 0.1); border-left: 3px solid var(--accent); font-size:13px; color:white; justify-content:space-between; align-items:center;">
+        <span id="rep-text" style="opacity:0.9"></span><i class="ph ph-x" onclick="cancelReply()" style="cursor:pointer"></i>
+    </div>
+    <div class="input-area">
+        <div class="input-row">
+            <input type="text" id="m-input" placeholder="Message..." oninput="updateTyping()" onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()" style="background:var(--accent-grad); border:none; width:35px; height:35px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;"><i class="ph-fill ph-paper-plane-right" style="font-size:18px; color:black;"></i></button>
+        </div>
+    </div>
+</div>
+
+<div id="list-menu" class="floating-menu">
+    <button onclick="renameUserPrompt()"><i class="ph ph-pencil"></i> Rename User</button>
+    <button onclick="pinUserAction()"><i class="ph ph-push-pin"></i> Pin/Unpin</button>
+    <button onclick="deleteConversation()" style="color:var(--danger)"><i class="ph ph-trash"></i> Delete Chat</button>
+</div>
+
+<div id="msg-menu" class="floating-menu">
+    <div style="display:flex; padding:8px; gap:5px; justify-content:space-around; background:rgba(255,255,255,0.05); border-radius:12px; margin-bottom:5px; font-size:22px;">
+        <span onclick="react('❤️')" style="cursor:pointer">❤️</span><span onclick="react('😂')" style="cursor:pointer">😂</span><span onclick="react('👍')" style="cursor:pointer">👍</span><span onclick="react('🔥')" style="cursor:pointer">🔥</span>
+    </div>
+    <button onclick="setupReply()"><i class="ph ph-arrow-bend-up-left"></i> Reply</button>
+    <button onclick="deleteMessage()" style="color:var(--danger)"><i class="ph ph-trash"></i> Delete Message</button>
+</div>
+
+<div id="profile-menu" class="floating-menu">
+    <button onclick="editField('username')"><i class="ph ph-user"></i> Change Username</button>
+    <button onclick="editField('bio')"><i class="ph ph-text-aa"></i> Edit Bio</button>
+    <button onclick="editField('avatar')"><i class="ph ph-image"></i> Change Avatar URL</button>
+    <button onclick="nuclearLogout()" style="color:var(--danger)"><i class="ph ph-sign-out"></i> Logout</button>
+</div>
+
+<script>
+const firebaseConfig = {
+    apiKey: "AIzaSyCK5lklf0YBM_-vK0Ep7kL98DvaOO-GaZo",
+    authDomain: "chatapp-9d1d8.firebaseapp.com",
+    databaseURL: "https://chatapp-9d1d8-default-rtdb.firebaseio.com",
+    projectId: "chatapp-9d1d8",
+    storageBucket: "chatapp-9d1d8.appspot.com",
+    messagingSenderId: "1003554938518",
+    appId: "1:1003554938518:web:5fb95261fb18d17b756cb7"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database(), auth = firebase.auth();
+let myUid, currentChatId, selectedTargetId, isReplying = null, pinnedUsers = {}, allUsers = [], typingTimeout;
+
+let modalCallback = null;
+function openModal(title, val, cb) {
+    document.getElementById('modal-title').innerText = title;
+    const inp = document.getElementById('modal-input');
+    inp.value = ""; 
+    inp.placeholder = val || "Enter value...";
+    modalCallback = cb;
+    document.getElementById('custom-modal').classList.add('active');
+    setTimeout(()=>inp.focus(), 100);
+}
+function confirmModal() {
+    const val = document.getElementById('modal-input').value;
+    if (val && modalCallback) modalCallback(val);
+    closeModal();
+}
+function closeModal() {
+    document.getElementById('custom-modal').classList.remove('active');
+    modalCallback = null;
+}
+document.getElementById('modal-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') confirmModal(); });
+
+auth.onAuthStateChanged(user => {
+    if (user) { 
+        myUid = user.uid; 
+        document.getElementById('auth-screen').classList.remove('active'); 
+        document.getElementById('app-screen').classList.add('active'); 
+        db.ref('users/'+myUid+'/status').set('online');
+        db.ref('users/'+myUid+'/status').onDisconnect().set('offline');
+        db.ref('users/'+myUid).on('value', s => {
+            if(s.val()){
+                document.getElementById('my-avatar').src = s.val().avatar || '';
+                document.getElementById('my-username').innerText = s.val().username || 'User';
+                document.getElementById('my-bio-display').innerText = s.val().bio || 'Available';
+            }
+        });
+        db.ref('users').on('value', s => { allUsers = Object.values(s.val() || {}); renderUsers(); });
+        db.ref('pinned/'+myUid).on('value', s => { pinnedUsers = s.val() || {}; renderUsers(); });
+    }
+});
+
+function handleAuth() {
+    const e = document.getElementById('auth-email').value, p = document.getElementById('auth-pass').value;
+    auth.signInWithEmailAndPassword(e, p).catch(() => auth.createUserWithEmailAndPassword(e, p).then(res => {
+        db.ref('users/'+res.user.uid).set({uid: res.user.uid, username: e.split('@')[0], avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${res.user.uid}`, bio: "Available", status: "online"});
+    }));
+}
+
+function renderUsers() {
+    const list = document.getElementById('chat-list'), term = document.getElementById('search-input').value.toLowerCase();
+    const nicks = JSON.parse(localStorage.getItem('nicknames') || '{}');
+    list.innerHTML = "";
+
+    let displayList = allUsers.filter(u => u.uid !== myUid);
+    displayList.sort((a, b) => {
+        const pinA = pinnedUsers[a.uid] ? 1 : 0;
+        const pinB = pinnedUsers[b.uid] ? 1 : 0;
+        return pinB - pinA;
+    });
+
+    displayList.forEach(u => {
+        const dName = nicks[u.uid] || u.username;
+        if (dName.toLowerCase().includes(term)) {
+            const isPinned = pinnedUsers[u.uid];
+            const d = document.createElement('div');
+            d.className = `user-item ${isPinned ? 'is-pinned' : ''}`;
+            d.innerHTML = `
+                <div class="avatar-wrapper"><img src="${u.avatar}" class="avatar"><div class="status-dot ${u.status === 'online' ? 'online' : 'offline'}"></div></div>
+                <div style="flex:1"><b style="font-size:15px; display:block; margin-bottom:2px;">${dName}</b><p style="font-size:12px; opacity:0.6">${u.bio || ''}</p></div>
+                <i class="ph-fill ph-push-pin pin-icon"></i>
+            `;
+            d.onclick = () => openChat(u, dName);
+            d.oncontextmenu = (e) => { e.preventDefault(); selectedTargetId = u.uid; showMenu(e, 'list-menu'); };
+            list.appendChild(d);
+        }
+    });
+}
+
+function openChat(user, name) {
+    currentChatId = myUid < user.uid ? myUid + user.uid : user.uid + myUid;
+    document.getElementById('chat-name').innerText = name;
+    document.getElementById('chat-avatar').src = user.avatar;
+    document.getElementById('chat-view').classList.add('active');
+    db.ref('typing/'+currentChatId+'/'+user.uid).on('value', s => { document.getElementById('typing-status').style.display = s.val() ? 'block' : 'none'; });
+    db.ref('chats/'+currentChatId).on('value', s => {
+        const box = document.getElementById('msg-container'); box.innerHTML = "";
+        s.forEach(m => {
+            const data = m.val();
+            const timeStr = new Date(data.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const div = document.createElement('div');
+            div.className = `msg ${data.sender === myUid ? 'sent' : 'received'}`;
+            let h = data.replyTo ? `<div style="font-size:11px; opacity:0.8; background:rgba(0,0,0,0.1); padding:5px 8px; border-radius:8px; margin-bottom:5px; border-left:3px solid var(--accent)">Reply: ${data.replyTo}</div>` : "";
+            h += `<div>${data.text}</div><span class="time-stamp">${timeStr}</span>`;
+            if(data.reaction) h += `<div class="react-badge">${data.reaction}</div>`;
+            div.innerHTML = h;
+            div.oncontextmenu = (e) => { e.preventDefault(); selectedTargetId = m.key; isReplying = data.text; showMenu(e, 'msg-menu'); };
+            box.appendChild(div);
+        });
+        box.scrollTop = box.scrollHeight;
+    });
+}
+
+function sendMessage() {
+    const i = document.getElementById('m-input'); if(!i.value.trim()) return;
+    const msg = { sender: myUid, text: i.value.trim(), time: Date.now() };
+    if(isReplying && document.getElementById('reply-preview').style.display === 'flex') { msg.replyTo = isReplying; cancelReply(); }
+    db.ref('chats/'+currentChatId).push(msg); i.value = ""; db.ref('typing/'+currentChatId+'/'+myUid).set(false);
+}
+
+function showMenu(e, id) { const m = document.getElementById(id); m.style.display = 'flex'; m.style.left = Math.min(e.pageX, window.innerWidth - 180) + 'px'; m.style.top = Math.min(e.pageY, window.innerHeight - 150) + 'px'; }
+function showProfileMenu(e) { e.stopPropagation(); const m = document.getElementById('profile-menu'); m.style.display = 'flex'; m.style.left = '15px'; m.style.top = '75px'; }
+
+function editField(f) { 
+    openModal(`New ${f}`, `Enter new ${f}`, (val) => {
+        db.ref(`users/${myUid}/${f}`).set(val);
+    });
+}
+function renameUserPrompt() { 
+    openModal("Rename User", "New nickname", (val) => {
+        const nks = JSON.parse(localStorage.getItem('nicknames') || '{}'); 
+        nks[selectedTargetId]=val; 
+        localStorage.setItem('nicknames', JSON.stringify(nks)); 
+        renderUsers();
+    });
+}
+
+function react(emoji) { db.ref(`chats/${currentChatId}/${selectedTargetId}/reaction`).set(emoji); }
+function setupReply() { document.getElementById('reply-preview').style.display='flex'; document.getElementById('rep-text').innerText=isReplying; }
+function cancelReply() { isReplying=null; document.getElementById('reply-preview').style.display='none'; }
+function deleteMessage() { db.ref(`chats/${currentChatId}/${selectedTargetId}`).remove(); }
+function pinUserAction() { db.ref(`pinned/${myUid}/${selectedTargetId}`).set(pinnedUsers[selectedTargetId] ? null : true); }
+function deleteConversation() { if(confirm("Delete this entire chat?")) db.ref('chats/'+currentChatId).remove(); }
+function closeChat() { document.getElementById('chat-view').classList.remove('active'); db.ref('typing/'+currentChatId+'/'+myUid).set(false); }
+function updateTyping() { db.ref('typing/'+currentChatId+'/'+myUid).set(true); clearTimeout(typingTimeout); typingTimeout = setTimeout(() => db.ref('typing/'+currentChatId+'/'+myUid).set(false), 2000); }
+function nuclearLogout() { auth.signOut().then(() => location.reload()); }
+window.onclick = (e) => {
+    if(!e.target.closest('.floating-menu') && !e.target.closest('.avatar')) document.querySelectorAll('.floating-menu').forEach(m => m.style.display = 'none');
+};
+</script>
+</body>
+</html>
